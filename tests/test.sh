@@ -156,10 +156,16 @@ check "manual handoff succeeds" test "$rc" -eq 0
 check "manual handoff prints the result" contains "$out" "stub agent finished the task"
 check "manual handoff prints no shell job noise" test -z "$(grep -i terminated <<<"$out")"
 check "manual brief includes the session history" grep -q "Add a retry to the uploader" "$tmp/brief-seen.md"
-prompt s8 "Make the uploader log every retry"; sleep 1; prompt s9 "Unrelated session, same directory, used last"
+# Two sessions share the directory: the caller is the one whose last request
+# carries the handed-off text, not the one that happened to type last.
+prompt s8 "Make the uploader log every retry"; prompt s8 "/failover:handoff Finish the uploader"; sleep 1
+prompt s9 "Unrelated session, same directory, used last"
 out=$(cd "$repo" && echo "Finish the uploader" | "$handoff" 2>&1); rc=$?
-check "manual handoff without --session picks the session last used in the directory" grep -q "used last" "$tmp/brief-seen.md"
-check "manual handoff without --session does not pick an older session" test -z "$(grep "log every retry" "$tmp/brief-seen.md")"
+check "manual handoff without --session picks the session that invoked it" grep -q "log every retry" "$tmp/brief-seen.md"
+check "manual handoff without --session never takes another session's history" test -z "$(grep "used last" "$tmp/brief-seen.md")"
+out=$(cd "$repo" && echo "Something no session asked for" | "$handoff" 2>&1); rc=$?
+check "manual handoff with no matching session sends no history" test -z "$(grep "Recent conversation" "$tmp/brief-seen.md")"
+check "manual handoff with no matching session says so" contains "$out" "no conversation history"
 out=$(printf '   \n' | "$handoff" 2>&1); rc=$?
 check "empty task exits 64" test "$rc" -eq 64
 

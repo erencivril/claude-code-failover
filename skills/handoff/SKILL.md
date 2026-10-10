@@ -14,7 +14,7 @@ $ARGUMENTS
 ## Steps
 
 1. If the text above is empty, ask the user what to hand off and stop.
-2. Run the handoff from the project's working directory, passing the user's text verbatim as the task. Do not rewrite, expand, or add detail to it; the only thing you may append is a list of file paths the user already named in this conversation. The script finds this session's recorded conversation from the working directory by itself; do not pass `--session`.
+2. Run the handoff from the project's working directory, passing the user's text verbatim as the task. Do not rewrite, expand, or add detail to it; the only thing you may append is a list of file paths the user already named in this conversation. The script finds this session's recorded conversation by matching your verbatim text against the request it recorded, which is why the text must not be changed; do not pass `--session`.
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.sh" <<'FAILOVER_TASK'

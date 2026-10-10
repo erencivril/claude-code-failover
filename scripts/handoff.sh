@@ -2,7 +2,8 @@
 # Hands a task to the fallback agent configured in ~/.claude/failover.json.
 #
 #   handoff.sh [--session ID] [--cwd DIR] [--reason TEXT] < task.txt   manual: prints the result;
-#       without --session it uses the session most recently active in DIR
+#       without --session it uses the session in DIR whose last request contains
+#       the task text (how /failover:handoff invokes it); otherwise no history is sent
 #   handoff.sh --auto --session ID --cwd DIR --reason TEXT             from the StopFailure hook:
 #       takes the task from the session's recorded history, leaves the result as
 #       pending for that session, and reports its path through FAILOVER_WAKE_FILE
@@ -29,14 +30,25 @@ while (( $# )); do
   shift
 done
 cd "$cwd" 2>/dev/null || { echo "failover: cannot enter $cwd" >&2; exit 66; }
+task=""
+$auto || task=$(cat)
 if [[ -z "$sid" ]] && ! $auto; then
   # The Bash tool does not expose the session id, so the handoff skill cannot pass
-  # one. The session that last sent a prompt from this directory is the caller.
-  sid=$(for f in "$FAILOVER_HOME"/sessions/*/cwd; do
-    [[ -f "$f" && "$(cat "$f")" == "$PWD" ]] || continue
-    d=${f%/cwd}
-    printf '%s %s\n' "$(stat -f %m "$d/history.jsonl" 2>/dev/null || stat -c %Y "$d/history.jsonl" 2>/dev/null || echo 0)" "${d##*/}"
-  done | sort -rn | head -n 1 | cut -d' ' -f2)
+  # one. The caller is the session in this directory whose last request contains
+  # the task text (the skill passes the user's words verbatim). Several sessions
+  # can share a directory, so a mere "most recent" match could brief the fallback
+  # agent with another session's conversation; with no match, no history is sent.
+  needle=$(printf '%s' "$task" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'); needle=${needle:0:120}
+  if [[ -n "$needle" ]]; then
+    sid=$(for f in "$FAILOVER_HOME"/sessions/*/cwd; do
+      [[ -f "$f" && "$(cat "$f")" == "$PWD" ]] || continue
+      d=${f%/cwd}
+      last=$(jq -rs 'map(select(.role == "user")) | last | .text // empty' "$d/history.jsonl" 2>/dev/null | tr -s '[:space:]' ' ')
+      [[ "$last" == *"$needle"* ]] || continue
+      printf '%s %s\n' "$(stat -f %m "$d/history.jsonl" 2>/dev/null || stat -c %Y "$d/history.jsonl" 2>/dev/null || echo 0)" "${d##*/}"
+    done | sort -rn | head -n 1 | cut -d' ' -f2)
+  fi
+  [[ -n "$sid" ]] || echo "failover: no session in this directory matches the task, so the brief carries no conversation history" >&2
 fi
 sid=$(safe_id "$sid")
 
@@ -63,10 +75,7 @@ if $auto; then
   handoff_running "$sdir" && exit 0
   echo $$ >"$sdir/handoff.pid"
   trap 'rm -f "$sdir/handoff.pid"; report_wake none' EXIT
-  task=""
   [[ -f "$history" ]] && task=$(jq -rs 'map(select(.role == "user")) | last | .text // empty' "$history" 2>/dev/null)
-else
-  task=$(cat)
 fi
 if [[ -z "${task//[[:space:]]/}" ]]; then
   echo "failover: nothing to hand off (empty task)" >&2
