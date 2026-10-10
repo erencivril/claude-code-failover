@@ -4,6 +4,7 @@
 #   Stop              remember the reply; nudge past a refusal that halted the task
 #   StopFailure       log the error, run the handoff when configured, then wake the session
 #   PostModelSwitch   after an automatic model fallback, tell Claude to keep going
+#   SessionStart      warn if the self-test failed; re-run it after a version change
 set -u
 
 # Debugging aid: FAILOVER_TRACE=/path/to/file appends a shell trace of every hook run.
@@ -77,6 +78,20 @@ remember() { # remember <role> <text> — rolling per-session history used to br
 }
 
 case "$event" in
+  SessionStart)
+    [[ -n "${FAILOVER_SELFTEST:-}" ]] && exit 0   # the self-test's own session
+    [[ "$(cfg selftest true)" == "true" ]] || exit 0
+    status="$FAILOVER_HOME/selftest.json"
+    today=$(date +%Y-%m-%d)
+    if [[ -f "$status" && "$(jq -r '.ok' "$status" 2>/dev/null)" == "false" &&
+          "$(jq -r '.warned_on // empty' "$status" 2>/dev/null)" != "$today" ]]; then
+      jq '{systemMessage: ("failover plugin: its self-test failed on " + .cc_version + " (" + .detail + "). Automatic handoff may not work until the plugin is updated. Run /failover:selftest for details.")}' "$status"
+      jq --arg d "$today" '.warned_on = $d' "$status" >"$status.tmp" && mv "$status.tmp" "$status"
+    fi
+    # Returns at once unless Claude Code or the plugin changed version since the last check.
+    detach "$here/selftest.sh"
+    ;;
+
   UserPromptSubmit)
     prompt=$(jq -r '.prompt // empty' <<<"$input")
     # Turns Claude Code starts by itself (a wake-up, a background task finishing)

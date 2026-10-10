@@ -39,12 +39,13 @@ In each case the work stops until you notice, switch tools, re-explain the task 
 | Claude Code switches models by itself after a flag | Tells Claude to keep going with the task and to list anything it had to leave out |
 | Claude declines one piece of a task and stops | Asks Claude once to continue with the rest and list what it skipped, so you can decide what to do with that piece |
 | You type `/failover:handoff <task>` | Hands that task to the fallback agent on demand and reports back |
+| Claude Code or the plugin is updated | Re-checks itself once in the background and warns you if the update broke it |
 
 Nothing is sent anywhere until you configure a command. With no config the plugin only logs and notifies.
 
 ## Install
 
-Requires a recent Claude Code (developed against v2.1.296), [jq](https://jqlang.github.io/jq/) and bash. macOS and Linux.
+Requires a recent Claude Code (developed against v2.1.296), [jq](https://jqlang.github.io/jq/) and bash. `python3` is optional and only used by the self-test. macOS and Linux.
 
 ```
 /plugin marketplace add erencivril/claude-code-failover
@@ -81,6 +82,7 @@ or write the config yourself.
 | `timeout` | `1800` | Seconds before a hung fallback agent is stopped |
 | `nudge` | `true` | Ask Claude to continue with the rest when it declines part of a task |
 | `notify` | `true` | Desktop notifications (macOS `osascript`, Linux `notify-send`) |
+| `selftest` | `true` | Re-check the plugin after Claude Code or the plugin changes version, and warn if it broke |
 | `retention_days` | `30` | Session histories and run logs older than this are deleted. `0` keeps them |
 
 ### Fallback agent commands
@@ -124,6 +126,16 @@ Details worth knowing:
 - **No loops.** If the turn after a wake-up dies too, the plugin logs it, notifies you and does nothing else until you send a message yourself. Separately, the fallback command runs with `FAILOVER_ACTIVE=1` and every hook exits immediately when it sees that, so using `claude -p` as your fallback cannot trigger a second handoff.
 - **Headless runs** (`claude -p`) exit within milliseconds of an API error and kill their hooks, so the handoff itself runs in a detached process that survives. To pick up the result in a script, run `claude -p -c "continue"` afterwards.
 - **Everything is logged** to `~/.claude/failover/events.jsonl`, one JSON object per line.
+
+## It tells you when an update breaks it
+
+A plugin like this depends on hook events and fields that can change between Claude Code releases, and when a hook stops firing nothing visibly fails: the safety net is just gone. So the plugin checks itself, without polling:
+
+- When a session starts, it compares the Claude Code and plugin versions with the last ones it verified. Nothing changed: it does nothing (about 20 ms, in the background).
+- A version changed: it runs one self-test in the background. That is a single headless Claude Code session pointed at a mock API on localhost that rejects the request, with a stub in place of your fallback agent. It verifies that the plugin loads, your prompt is captured, the StopFailure hook fires, the error text is readable and the detached handoff starts. It takes a few seconds, uses no tokens and sends nothing off your machine.
+- The test failed: you get a desktop notification, and a one-line warning at the start of your sessions (once a day) until an update fixes it.
+
+Run it on demand with `/failover:selftest`. It needs `python3` for the mock API and is skipped quietly without it. One thing it cannot check is the automatic wake-up of an interactive session, which only happens with a terminal attached.
 
 ## Turn on the built-in recovery first
 

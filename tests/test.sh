@@ -159,6 +159,27 @@ check "manual brief includes the session history" grep -q "Add a retry to the up
 out=$(printf '   \n' | "$handoff" 2>&1); rc=$?
 check "empty task exits 64" test "$rc" -eq 64
 
+# --- self-test after a version change -----------------------------------------
+# A fake `claude` that reports a new version and fires no hooks: the self-test
+# must record a failure, and the next session start must warn about it once.
+if command -v python3 >/dev/null 2>&1; then
+  printf '#!/bin/bash\n[[ "$1" == "--version" ]] && { echo "9.9.9 (Claude Code)"; exit 0; }\ncurl -s -X POST -d "{}" "$ANTHROPIC_BASE_URL/v1/messages" >/dev/null\nexit 1\n' >"$tmp/fake-claude"
+  chmod +x "$tmp/fake-claude"
+  export CLAUDE_CODE_EXECPATH="$tmp/fake-claude"
+  fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'
+  check "first session start after an update prints nothing" empty "$out"
+  wait_grep '"ok": false' "$FAILOVER_HOME/selftest.json"   # the self-test itself takes a few seconds
+  check "self-test runs and records a failure for the new version" wait_grep '"ok": false' "$FAILOVER_HOME/selftest.json"
+  check "the failure names the version it was found on" grep -q '9.9.9' "$FAILOVER_HOME/selftest.json"
+  fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'
+  check "next session start warns the user" contains "$out" "self-test failed on 9.9.9"
+  fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'
+  check "the warning is shown once a day, not every session" empty "$out"
+  out=$(FAILOVER_SELFTEST=1 "$hook" <<<"$(payload '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}')")
+  check "the self-test's own session does not start another self-test" empty "$out"
+  unset CLAUDE_CODE_EXECPATH
+fi
+
 check "nothing in the state directory is readable by other users" test -z "$(find "$FAILOVER_HOME" -perm -004 -print -quit)$(find "$FAILOVER_HOME" -perm -040 -print -quit)"
 
 config "{\"command\": \"sleep 30\", \"timeout\": 1, \"notify\": false}"
