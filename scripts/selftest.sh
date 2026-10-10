@@ -38,7 +38,7 @@ work=""
 mock=""
 cleanup() {
   [[ -n "$mock" ]] && { kill "$mock"; wait "$mock"; } 2>/dev/null
-  [[ -n "$work" ]] && rm -rf "$work"
+  [[ -n "$work" ]] && { rm -rf "$work" || { sleep 1; rm -rf "$work"; }; } 2>/dev/null
   rmdir "$lock" 2>/dev/null
 }
 trap cleanup EXIT
@@ -96,6 +96,12 @@ wait "$session" 2>/dev/null
 for i in $(seq 1 50); do
   [[ -s "$work/brief" ]] && break
   (( i > 15 )) && ! grep -qs '"event":"stop_failure"' "$work/state/events.jsonl" && break
+  sleep 0.2
+done
+# Let the detached handoff finish writing before its files are checked and removed.
+for _ in $(seq 1 25); do
+  [[ ! -s "$work/brief" ]] && break
+  grep -qs '"event":"handoff_finished"' "$work/state/events.jsonl" && break
   sleep 0.2
 done
 
