@@ -14,24 +14,30 @@ command -v jq >/dev/null 2>&1 || exit 0
 # (including a nested `claude -p`) never triggers another handoff.
 [[ -n "${FAILOVER_ACTIVE:-}" ]] && exit 0
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# No subprocesses until the StopFailure branch below has detached its worker:
+# headless Claude Code exits within milliseconds of an API error and kills its hooks.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib.sh
 . "$here/lib.sh"
 
-if [[ -n "${FAILOVER_DETACHED:-}" && -f "${1:-}" ]]; then
-  input=$(cat "$1"); rm -f "$1"
+if [[ -n "${FAILOVER_PAYLOAD:-}" ]]; then
+  # Detached worker for StopFailure: the hook input arrives in the environment.
+  input=$FAILOVER_PAYLOAD
+  unset FAILOVER_PAYLOAD
 else
-  input=$(cat)
+  IFS= read -r -d '' input || true
   if [[ "$input" == *'"StopFailure"'* ]]; then
-    # Two processes handle this event. A detached worker (below, FAILOVER_DETACHED)
-    # does the real work, because headless Claude Code exits within milliseconds of
-    # the error and kills its hooks. This process, registered with asyncRewake,
+    # Two processes handle this event. The detached worker does the real work, so it
+    # survives a headless session exiting. This process, registered with asyncRewake,
     # waits for the worker: when a handoff finishes it prints the result to stderr
     # and exits 2, which makes an interactive session start a new turn by itself.
-    payload=$(mktemp "${TMPDIR:-/tmp}/failover-payload.XXXXXX") || exit 0
-    printf '%s' "$input" >"$payload"
-    export FAILOVER_WAKE_FILE="$payload.wake"
-    FAILOVER_DETACHED=1 detach "${BASH_SOURCE[0]}" "$payload"
+    # The wake file lives in the plugin's own owner-only directory, never in a shared
+    # temp directory where another local user could plant or redirect it.
+    export FAILOVER_WAKE_FILE="$FAILOVER_HOME/tmp/wake.$$.$RANDOM$RANDOM"
+    trap '' TERM HUP   # cover the instant between the fork and the worker's setsid
+    FAILOVER_PAYLOAD="$input" detach "${BASH_SOURCE[0]}"
+    trap - TERM HUP
 
     [[ "$(cfg wake true)" == "true" ]] || exit 0
     limit=$(cfg timeout 1800)
@@ -42,7 +48,13 @@ else
       sleep 0.5
     done
     result=$(cat "$FAILOVER_WAKE_FILE"); rm -f "$FAILOVER_WAKE_FILE"
-    [[ -f "$result" ]] || exit 0   # "none": nothing was handed off
+    # "none" means nothing was handed off. Anything else must be a pending result
+    # written by handoff.sh inside the state directory; its text goes to Claude.
+    case "$result" in
+      "$FAILOVER_HOME"/sessions/*/pending/*.md) ;;
+      *) exit 0 ;;
+    esac
+    [[ "$result" != *..* && -f "$result" && ! -L "$result" ]] || exit 0
     sdir=$(dirname "$(dirname "$result")")
     cat "$result" >&2
     mkdir -p "$sdir/delivered" && mv "$result" "$sdir/delivered/"
@@ -103,6 +115,8 @@ case "$event" in
 
   StopFailure)
     # Runs in the detached worker started above, so everything here is a side effect.
+    ensure_home
+    prune
     error=$(jq -r '.error // "unknown"' <<<"$input")
     text=$(jq -r '[.last_assistant_message, .error_details] | map(. // "") | join(" ")' <<<"$input")
     kind="$error"

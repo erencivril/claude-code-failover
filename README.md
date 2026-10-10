@@ -81,6 +81,7 @@ or write the config yourself.
 | `timeout` | `1800` | Seconds before a hung fallback agent is stopped |
 | `nudge` | `true` | Ask Claude to continue with the rest when it declines part of a task |
 | `notify` | `true` | Desktop notifications (macOS `osascript`, Linux `notify-send`) |
+| `retention_days` | `30` | Session histories and run logs older than this are deleted. `0` keeps them |
 
 ### Fallback agent commands
 
@@ -150,6 +151,13 @@ This plugin covers what is left: the stops those settings cannot recover from, a
 - **Which error type a real policy block reports is not documented.** The plugin recognises it from the error text. If your stops are logged under another type, add that type to `on`; `events.jsonl` shows what was reported.
 - **The refusal nudge is a pattern match** on short replies. It can occasionally fire on a message that was not a refusal, in which case Claude is told to ignore it. Set `"nudge": false` to turn it off.
 - Windows is untested.
+
+## Security notes
+
+- **What is stored.** To brief the fallback agent, the plugin keeps the last 40 messages of each session (your prompts and Claude's final replies, truncated), plus each run's brief and agent output, under `~/.claude/failover/`. Files are created owner-only (`umask 077`) and pruned after `retention_days`. `events.jsonl` holds the first 300 characters of each error message.
+- **Content crosses between agents.** The brief contains conversation text, and the fallback agent's output is shown to Claude. Both are labelled as records rather than instructions, but a labelled record is still text a model reads: if the session handled untrusted content (a web page, a third-party file), some of it can reach the fallback agent. Give that agent no more permissions than the task needs, for example a workspace-only sandbox.
+- **The command runs unattended** with your user's permissions, which is why it is read only from your home directory and never from a project.
+- `FAILOVER_TRACE` writes a full shell trace, prompts included. Use it for debugging only and delete the file afterwards.
 
 ## FAQ
 

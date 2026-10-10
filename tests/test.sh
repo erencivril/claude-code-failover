@@ -159,6 +159,8 @@ check "manual brief includes the session history" grep -q "Add a retry to the up
 out=$(printf '   \n' | "$handoff" 2>&1); rc=$?
 check "empty task exits 64" test "$rc" -eq 64
 
+check "nothing in the state directory is readable by other users" test -z "$(find "$FAILOVER_HOME" -perm -004 -print -quit)$(find "$FAILOVER_HOME" -perm -040 -print -quit)"
+
 config "{\"command\": \"sleep 30\", \"timeout\": 1, \"notify\": false}"
 start=$SECONDS
 echo "slow task" | "$handoff" >/dev/null 2>&1

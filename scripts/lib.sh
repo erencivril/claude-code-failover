@@ -2,6 +2,10 @@
 # Shared helpers for the failover plugin. Sourced by hook.sh and handoff.sh.
 # Written for bash 3.2 (the macOS default), so no associative arrays or mapfile.
 
+# Everything this plugin stores (recent prompts and replies, briefs, agent output,
+# logs) is readable by the owner only.
+umask 077
+
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 FAILOVER_HOME="${FAILOVER_HOME:-$CLAUDE_HOME/failover}"
 # Only ever read from the user's own config directory: this file names a command
@@ -33,8 +37,23 @@ safe_id() {
   printf '%s' "${id:-unknown}"
 }
 
+# Creates the state directory, owner-only even if an older version made it wider.
+ensure_home() {
+  mkdir -p "$FAILOVER_HOME/tmp" && chmod 700 "$FAILOVER_HOME" 2>/dev/null
+}
+
+# Removes session histories, run logs and stray temp files older than retention_days.
+prune() {
+  local days
+  days=$(cfg retention_days 30)
+  [[ -n "$FAILOVER_HOME" && "$days" =~ ^[0-9]+$ && "$days" -gt 0 ]] || return 0
+  find "$FAILOVER_HOME/sessions" "$FAILOVER_HOME/runs" "$FAILOVER_HOME/tmp" \
+    -mindepth 1 -maxdepth 1 -mtime +"$days" -exec rm -rf {} + 2>/dev/null
+  return 0
+}
+
 log_event() { # log_event <json object>
-  mkdir -p "$FAILOVER_HOME"
+  ensure_home
   jq -c --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{ts: $ts} + .' <<<"$1" >>"$FAILOVER_HOME/events.jsonl" 2>/dev/null
 }
 
@@ -52,11 +71,13 @@ notify() { # notify <title> <body>
 
 # detach <command...> — run a command in its own session so it outlives the caller.
 # Headless Claude Code exits right after an API error and takes its hooks with it.
+# The perl form also restores default signal handling, which the caller may have
+# switched off around the fork.
 detach() {
-  if command -v setsid >/dev/null 2>&1; then
+  if command -v perl >/dev/null 2>&1; then
+    perl -MPOSIX -e '$SIG{TERM} = $SIG{HUP} = "DEFAULT"; POSIX::setsid(); exec @ARGV or exit 127' -- "$@" </dev/null >/dev/null 2>&1 &
+  elif command -v setsid >/dev/null 2>&1; then
     setsid "$@" </dev/null >/dev/null 2>&1 &
-  elif command -v perl >/dev/null 2>&1; then
-    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 127' -- "$@" </dev/null >/dev/null 2>&1 &
   else
     nohup "$@" </dev/null >/dev/null 2>&1 &
   fi
