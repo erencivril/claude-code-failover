@@ -1,6 +1,6 @@
 {
   "name": "failover",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Keeps a Claude Code task moving when a turn dies: catches API errors, safeguard flags and refusals, hands the work to any other agent CLI, then wakes the session with the result.",
   "author": {
     "name": "erencivril",
