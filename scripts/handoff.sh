@@ -2,8 +2,8 @@
 # Hands a task to the fallback agent configured in ~/.claude/failover.json.
 #
 #   handoff.sh [--session ID] [--cwd DIR] [--reason TEXT] < task.txt   manual: prints the result;
-#       without --session it uses the session in DIR whose last request contains
-#       the task text (how /failover:handoff invokes it); otherwise no history is sent
+#       without --session it uses the session in DIR whose last request was
+#       "/failover:handoff <this task>"; otherwise no history is sent
 #   handoff.sh --auto --session ID --cwd DIR --reason TEXT             from the StopFailure hook:
 #       takes the task from the session's recorded history, leaves the result as
 #       pending for that session, and reports its path through FAILOVER_WAKE_FILE
@@ -34,17 +34,21 @@ task=""
 $auto || task=$(cat)
 if [[ -z "$sid" ]] && ! $auto; then
   # The Bash tool does not expose the session id, so the handoff skill cannot pass
-  # one. The caller is the session in this directory whose last request contains
-  # the task text (the skill passes the user's words verbatim). Several sessions
-  # can share a directory, so a mere "most recent" match could brief the fallback
-  # agent with another session's conversation; with no match, no history is sent.
-  needle=$(printf '%s' "$task" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'); needle=${needle:0:120}
+  # one. The caller is the session in this directory whose last recorded request
+  # is "/failover:handoff <text>" with the task starting with that exact text (the
+  # skill passes the user's words verbatim and may only append file paths). A
+  # looser match, such as a substring, could brief the fallback agent with another
+  # session's conversation when sessions share a directory; with no match, no
+  # history is sent.
+  needle=$(printf '%s' "$task" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')
   if [[ -n "$needle" ]]; then
     sid=$(for f in "$FAILOVER_HOME"/sessions/*/cwd; do
       [[ -f "$f" && "$(cat "$f")" == "$PWD" ]] || continue
       d=${f%/cwd}
-      last=$(jq -rs 'map(select(.role == "user")) | last | .text // empty' "$d/history.jsonl" 2>/dev/null | tr -s '[:space:]' ' ')
-      [[ "$last" == *"$needle"* ]] || continue
+      last=$(jq -rs 'map(select(.role == "user")) | last | .text // empty' "$d/history.jsonl" 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')
+      [[ "$last" == "/failover:handoff "* ]] || continue
+      asked=${last#/failover:handoff }
+      [[ -n "$asked" && "$needle" == "$asked"* ]] || continue
       printf '%s %s\n' "$(stat -f %m "$d/history.jsonl" 2>/dev/null || stat -c %Y "$d/history.jsonl" 2>/dev/null || echo 0)" "${d##*/}"
     done | sort -rn | head -n 1 | cut -d' ' -f2)
   fi

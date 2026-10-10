@@ -159,10 +159,12 @@ check "manual brief includes the session history" grep -q "Add a retry to the up
 # Two sessions share the directory: the caller is the one whose last request
 # carries the handed-off text, not the one that happened to type last.
 prompt s8 "Make the uploader log every retry"; prompt s8 "/failover:handoff Finish the uploader"; sleep 1
-prompt s9 "Unrelated session, same directory, used last"
-out=$(cd "$repo" && echo "Finish the uploader" | "$handoff" 2>&1); rc=$?
+prompt s9 "Unrelated session that mentions: Finish the uploader, used last"
+out=$(cd "$repo" && echo "Finish the uploader (see src/upload.py)" | "$handoff" 2>&1); rc=$?
 check "manual handoff without --session picks the session that invoked it" grep -q "log every retry" "$tmp/brief-seen.md"
 check "manual handoff without --session never takes another session's history" test -z "$(grep "used last" "$tmp/brief-seen.md")"
+out=$(cd "$repo" && echo "Finish" | "$handoff" 2>&1); rc=$?
+check "a task shorter than the recorded request does not match" test -z "$(grep "Recent conversation" "$tmp/brief-seen.md")"
 out=$(cd "$repo" && echo "Something no session asked for" | "$handoff" 2>&1); rc=$?
 check "manual handoff with no matching session sends no history" test -z "$(grep "Recent conversation" "$tmp/brief-seen.md")"
 check "manual handoff with no matching session says so" contains "$out" "no conversation history"
