@@ -71,10 +71,10 @@ printf '#!/bin/bash\ncat >"%s/brief"\n' "$work" >"$work/agent.sh"
 chmod +x "$work/agent.sh"
 jq -n --arg c "$work/agent.sh" '{command: $c, auto: true, wake: false, notify: false, selftest: false}' >"$work/failover.json"
 
-python3 "$here/selftest_mock.py" "$work/port" "$work/hits" >/dev/null 2>&1 &
+python3 "$here/selftest_mock.py" "$work/port" "$work/hits" >"$work/mock.log" 2>&1 &
 mock=$!
 for _ in $(seq 1 150); do [[ -s "$work/port" ]] && break; sleep 0.1; done   # a cold python3 can be slow
-[[ -s "$work/port" ]] || finish null "the local mock API did not start"
+[[ -s "$work/port" ]] || finish null "the local mock API did not start: $(tail -n 2 "$work/mock.log" 2>/dev/null | tr '\n' ' ')"
 
 (
   cd "$work/cwd" || exit 1

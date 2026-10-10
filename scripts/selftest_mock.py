@@ -5,6 +5,7 @@ answers every request with a policy-style error, appending one line per
 request to argv[2]. No request ever leaves the machine.
 """
 import json
+import socketserver
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -37,7 +38,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(BODY)
 
 
-server = HTTPServer(("127.0.0.1", 0), Handler)
+class Server(HTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind looks up the host's FQDN, a reverse DNS query that
+        # can hang for a long time on some machines. Nothing here needs the name.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
+
+
+server = Server(("127.0.0.1", 0), Handler)
 with open(port_file, "w") as f:
     f.write(str(server.server_address[1]))
 server.serve_forever()
