@@ -1,0 +1,15 @@
+{
+  "name": "claude-code-failover",
+  "description": "Failover for Claude Code: hand a stopped task to any other agent CLI and bring the result back.",
+  "owner": {
+    "name": "erencivril",
+    "url": "https://github.com/erencivril"
+  },
+  "plugins": [
+    {
+      "name": "failover",
+      "source": "./",
+      "description": "Keeps a Claude Code task moving when a turn dies: catches API errors, safeguard flags and refusals, hands the work to any other agent CLI, then wakes the session with the result."
+    }
+  ]
+}
