@@ -99,6 +99,8 @@ case "$event" in
     if [[ "$prompt" != "<task-notification>"* ]]; then
       remember user "$prompt"
       rm -f "$sdir/woke"
+      # Lets a manual handoff find this session from the working directory.
+      [[ -n "$cwd" ]] && printf '%s\n' "$cwd" >"$sdir/cwd"
     fi
     context=""
     if handoff_running "$sdir"; then

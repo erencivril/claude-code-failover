@@ -1,7 +1,8 @@
 #!/bin/bash
 # Hands a task to the fallback agent configured in ~/.claude/failover.json.
 #
-#   handoff.sh [--session ID] [--cwd DIR] [--reason TEXT] < task.txt   manual: prints the result
+#   handoff.sh [--session ID] [--cwd DIR] [--reason TEXT] < task.txt   manual: prints the result;
+#       without --session it uses the session most recently active in DIR
 #   handoff.sh --auto --session ID --cwd DIR --reason TEXT             from the StopFailure hook:
 #       takes the task from the session's recorded history, leaves the result as
 #       pending for that session, and reports its path through FAILOVER_WAKE_FILE
@@ -27,6 +28,16 @@ while (( $# )); do
   esac
   shift
 done
+cd "$cwd" 2>/dev/null || { echo "failover: cannot enter $cwd" >&2; exit 66; }
+if [[ -z "$sid" ]] && ! $auto; then
+  # The Bash tool does not expose the session id, so the handoff skill cannot pass
+  # one. The session that last sent a prompt from this directory is the caller.
+  sid=$(for f in "$FAILOVER_HOME"/sessions/*/cwd; do
+    [[ -f "$f" && "$(cat "$f")" == "$PWD" ]] || continue
+    d=${f%/cwd}
+    printf '%s %s\n' "$(stat -f %m "$d/history.jsonl" 2>/dev/null || stat -c %Y "$d/history.jsonl" 2>/dev/null || echo 0)" "${d##*/}"
+  done | sort -rn | head -n 1 | cut -d' ' -f2)
+fi
 sid=$(safe_id "$sid")
 
 # The StopFailure hook waits on this file to learn how an automatic handoff ended:
@@ -46,7 +57,6 @@ if [[ -z "$command_line" ]]; then
   echo "failover: no handoff command configured. Set \"command\" in $FAILOVER_CONFIG (see the README)." >&2
   exit 78
 fi
-cd "$cwd" 2>/dev/null || { echo "failover: cannot enter $cwd" >&2; exit 66; }
 
 if $auto; then
   mkdir -p "$sdir"

@@ -11,8 +11,9 @@ When a turn ends in an API error, a safeguard flag or a rate limit, Claude Code 
 you ▸ refactor the parser module
       API Error: 400 ... appears to violate our Usage Policy        ← turn dies
 
-      [failover] handing the task to your fallback agent…            ← automatic
-      [failover] handoff finished (exit 0)                           ← automatic
+      ⧉ Claude Code stopped (policy)                                 ← desktop notification
+        Handing the task to your fallback agent…
+      ⧉ Failover handoff finished (exit 0)                           ← desktop notification
 
       The fallback agent refactored parser/ (3 files changed). I've checked
       its work and I'm moving on to the tests…                       ← session wakes itself
@@ -79,7 +80,7 @@ or write the config yourself.
 | `wake` | `true` | Resume the session by itself when an automatic handoff finishes. When `false` the result waits for your next message |
 | `on` | `policy`, `rate_limit`, `overloaded`, `server_error` | Which stops trigger it. `policy` is detected from the error text; the rest are Claude Code's [StopFailure error types](https://code.claude.com/docs/en/hooks) (`unknown`, `invalid_request`, `max_output_tokens`, `model_not_found`, ...) |
 | `history` | `6` | How many recent messages (your requests and Claude's final replies) go into the brief |
-| `timeout` | `1800` | Seconds before a hung fallback agent is stopped |
+| `timeout` | `1800` | Seconds before a hung fallback agent is stopped. Above `7080` an interactive session no longer wakes by itself (Claude Code's limit on the hook); the result is delivered with your next prompt instead |
 | `nudge` | `true` | Ask Claude to continue with the rest when it declines part of a task |
 | `notify` | `true` | Desktop notifications (macOS `osascript`, Linux `notify-send`) |
 | `selftest` | `true` | Re-check the plugin after Claude Code or the plugin changes version, and warn if it broke |
@@ -159,7 +160,7 @@ This plugin covers what is left: the stops those settings cannot recover from, a
 
 - **After a policy stop the conversation itself may stay blocked**, because the check looks at the whole conversation, flagged request included. The plugin wakes the session once; if that turn is stopped again, it leaves the session alone and tells you. Rewind past the flagged request (press Esc twice, or `/rewind`) and send a message: the handoff result is still on disk in the run directory.
 - **Automatic resume needs the session to stay open.** If you close it while the fallback agent is working, or the run is headless, the result is delivered with the next prompt in that session instead.
-- **The fallback agent gets a summary, not the full transcript**: your last request plus the last few messages.
+- **The fallback agent gets a summary, not the full transcript**: your last request plus the last few messages. If your last message was something like "continue", the agent has to work out the task from those messages, so raise `history` if your sessions tend to go that way.
 - **Which error type a real policy block reports is not documented.** The plugin recognises it from the error text. If your stops are logged under another type, add that type to `on`; `events.jsonl` shows what was reported.
 - **The refusal nudge is a pattern match** on short replies. It can occasionally fire on a message that was not a refusal, in which case Claude is told to ignore it. Set `"nudge": false` to turn it off.
 - Windows is untested.
