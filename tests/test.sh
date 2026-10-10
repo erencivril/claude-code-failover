@@ -168,9 +168,11 @@ if command -v python3 >/dev/null 2>&1; then
   export CLAUDE_CODE_EXECPATH="$tmp/fake-claude"
   fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'
   check "first session start after an update prints nothing" empty "$out"
-  wait_grep '"ok": false' "$FAILOVER_HOME/selftest.json"   # the self-test itself takes a few seconds
+  wait_for "$FAILOVER_HOME/selftest.json"; wait_for "$FAILOVER_HOME/selftest.json"   # the self-test takes a while on a cold machine
+  wait_grep '"ok": false' "$FAILOVER_HOME/selftest.json"
   check "self-test runs and records a failure for the new version" wait_grep '"ok": false' "$FAILOVER_HOME/selftest.json"
   check "the failure names the version it was found on" grep -q '9.9.9' "$FAILOVER_HOME/selftest.json"
+  echo "     (self-test detail: $(jq -r '.detail' "$FAILOVER_HOME/selftest.json" 2>/dev/null))"
   fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'
   check "next session start warns the user" contains "$out" "self-test failed on 9.9.9"
   fire '{hook_event_name: "SessionStart", session_id: "s8", source: "startup"}'

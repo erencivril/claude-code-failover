@@ -73,7 +73,7 @@ jq -n --arg c "$work/agent.sh" '{command: $c, auto: true, wake: false, notify: f
 
 python3 "$here/selftest_mock.py" "$work/port" "$work/hits" >/dev/null 2>&1 &
 mock=$!
-for _ in $(seq 1 50); do [[ -s "$work/port" ]] && break; sleep 0.1; done
+for _ in $(seq 1 150); do [[ -s "$work/port" ]] && break; sleep 0.1; done   # a cold python3 can be slow
 [[ -s "$work/port" ]] || finish null "the local mock API did not start"
 
 (
